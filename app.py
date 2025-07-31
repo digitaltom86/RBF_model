@@ -269,7 +269,7 @@ with tab1:
         hovermode='x unified'
     )
     
-    fig.update_yaxis(tickformat='€,.0f')
+    fig.update_yaxis(tickformat=',.0f')
     st.plotly_chart(fig, use_container_width=True)
 
 with tab2:
@@ -335,7 +335,7 @@ with tab2:
         height=400
     )
     
-    fig_breakdown.update_yaxis(tickformat='€,.0f')
+    fig_breakdown.update_yaxis(tickformat=',.0f')
     st.plotly_chart(fig_breakdown, use_container_width=True)
 
 with tab3:
@@ -403,7 +403,7 @@ with tab3:
         height=400
     )
     
-    fig_components.update_yaxis(tickformat='€,.0f')
+    fig_components.update_yaxis(tickformat=',.0f')
     st.plotly_chart(fig_components, use_container_width=True)
 
 with tab4:
