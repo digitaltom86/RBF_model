@@ -4,7 +4,6 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
-from datetime import datetime, timedelta
 import math
 
 # Page configuration
@@ -33,40 +32,33 @@ initial_investment = st.sidebar.number_input(
     format="%d"
 )
 
-term_months = st.sidebar.slider(
-    "Agreement Term (months)", 
-    min_value=36, 
-    max_value=60, 
-    value=60, 
+term_years = st.sidebar.slider(
+    "Agreement Term (years)", 
+    min_value=3, 
+    max_value=5, 
+    value=5, 
     step=1
 )
 
 # Trading performance parameters
-st.sidebar.subheader("Trading Performance")
-annual_return = st.sidebar.slider(
-    "Expected Annual Return (%)", 
-    min_value=0.0, 
-    max_value=50.0, 
-    value=30.0, 
-    step=0.5
-)
+st.sidebar.subheader("Trading Performance Scenarios")
+col1, col2, col3 = st.sidebar.columns(3)
 
-volatility = st.sidebar.slider(
-    "Return Volatility (%)", 
-    min_value=0.0, 
-    max_value=20.0, 
-    value=5.0, 
-    step=0.5
-)
+with col1:
+    pessimistic_apr = st.number_input("Pessimistic APR (%)", min_value=10.0, max_value=40.0, value=25.0, step=0.5)
+with col2:
+    balanced_apr = st.number_input("Balanced APR (%)", min_value=20.0, max_value=50.0, value=38.0, step=0.5)
+with col3:
+    optimistic_apr = st.number_input("Optimistic APR (%)", min_value=30.0, max_value=60.0, value=50.0, step=0.5)
 
 # Financing terms
 st.sidebar.subheader("Financing Terms")
-hurdle_rate_quarterly = st.sidebar.slider(
-    "Quarterly Hurdle Rate (%)", 
-    min_value=2.0, 
-    max_value=3.75, 
-    value=3.0, 
-    step=0.25
+annual_hurdle_rate = st.sidebar.slider(
+    "Annual Hurdle Rate (%)", 
+    min_value=8.0, 
+    max_value=15.0, 
+    value=12.0, 
+    step=0.5
 )
 
 premium_threshold = st.sidebar.slider(
@@ -85,373 +77,440 @@ premium_share = st.sidebar.slider(
     step=5.0
 )
 
-# Decision strategy
+# Strategy settings
 st.sidebar.subheader("Investment Strategy")
-default_strategy = st.sidebar.selectbox(
-    "Default Strategy",
-    ["Always Capitalize", "Always Withdraw", "Optimize Returns", "Mixed Strategy"]
+strategy_option = st.sidebar.selectbox(
+    "Capitalization Strategy",
+    ["Always Capitalize", "Always Withdraw", "Custom by Year"]
 )
 
-# Advanced options
-with st.sidebar.expander("🔧 Advanced Options"):
-    seed = st.number_input("Random Seed", min_value=1, max_value=1000, value=42)
-    monte_carlo_runs = st.number_input("Monte Carlo Simulations", min_value=100, max_value=1000, value=500)
-
-# Helper functions
-def generate_quarterly_returns(annual_return, volatility, quarters, seed=42):
-    """Generate quarterly returns with volatility"""
-    np.random.seed(seed)
-    quarterly_base = (1 + annual_return/100) ** (1/4) - 1
-    quarterly_returns = np.random.normal(
-        quarterly_base, 
-        volatility/100/2, 
-        quarters
-    )
-    return quarterly_returns
-
-def calculate_scenario(params):
-    """Calculate investment scenario"""
-    quarters = math.ceil(params['term_months'] / 3)
-    quarterly_returns = generate_quarterly_returns(
-        params['annual_return'], 
-        params['volatility'], 
-        quarters, 
-        params['seed']
-    )
-    
-    results = []
-    current_capital_base = params['initial_investment']
-    total_payments_received = 0
-    total_capitalized = 0
-    
-    for quarter in range(quarters):
-        # Calculate quarterly return
-        quarterly_return = quarterly_returns[quarter]
-        annual_equivalent = ((1 + quarterly_return) ** 4 - 1) * 100
-        
-        # Calculate hurdle payment
-        hurdle_payment = current_capital_base * (params['hurdle_rate_quarterly'] / 100)
-        
-        # Calculate premium payment (only at year-end quarters)
-        premium_payment = 0
-        if (quarter + 1) % 4 == 0:  # Year-end
-            if annual_equivalent > params['premium_threshold']:
-                excess_return = annual_equivalent - params['premium_threshold']
-                premium_payment = current_capital_base * (excess_return / 100) * (params['premium_share'] / 100)
-        
-        total_payment = hurdle_payment + premium_payment
-        
-        # Decision making based on strategy
-        decision = make_quarterly_decision(
-            params['strategy'], 
-            quarter, 
-            annual_equivalent, 
-            params['premium_threshold'],
-            total_payment,
-            current_capital_base
+custom_decisions = {}
+if strategy_option == "Custom by Year":
+    st.sidebar.write("**Year-by-year decisions:**")
+    for year in range(1, term_years + 1):
+        custom_decisions[year] = st.sidebar.selectbox(
+            f"Year {year}",
+            ["Capitalize", "Withdraw"],
+            key=f"year_{year}"
         )
-        
-        if decision == "capitalize":
-            current_capital_base += total_payment
-            total_capitalized += total_payment
-            cash_received = 0
-        else:
-            cash_received = total_payment
-            total_payments_received += cash_received
-        
-        results.append({
-            'Quarter': quarter + 1,
-            'Quarterly_Return': quarterly_return * 100,
-            'Annual_Equivalent': annual_equivalent,
-            'Current_Capital_Base': current_capital_base,
-            'Hurdle_Payment': hurdle_payment,
-            'Premium_Payment': premium_payment,
-            'Total_Payment': total_payment,
-            'Decision': decision,
-            'Cash_Received': cash_received,
-            'Cumulative_Cash': total_payments_received,
-            'Total_Capitalized': total_capitalized
-        })
+
+def calculate_annual_scenario(initial_capital, strategy_apr, hurdle_rate_pct, premium_threshold_pct, premium_share_pct, term_years, decisions=None):
+    """
+    Calculate year-by-year scenario following the exact logic from your model
+    """
+    results = []
+    current_capital = initial_capital
+    total_hurdle_payments = 0
+    total_premium_payments = 0
+    total_withdrawn = 0
     
-    return pd.DataFrame(results), total_payments_received, total_capitalized, current_capital_base
+    for year in range(1, term_years + 1):
+        # Calculate profit from trading
+        profit_from_trading = current_capital * (strategy_apr / 100)
+        
+        # Calculate premium threshold (30% of current capital)
+        premium_threshold_amount = current_capital * (premium_threshold_pct / 100)
+        
+        # Calculate surplus above 30%
+        surplus_above_threshold = max(0, profit_from_trading - premium_threshold_amount)
+        
+        # Calculate investor premium (50% of surplus)
+        investor_premium = surplus_above_threshold * (premium_share_pct / 100)
+        
+        # Calculate hurdle rate (12% of current capital)
+        hurdle_rate_payment = current_capital * (hurdle_rate_pct / 100)
+        
+        # Total return to investor
+        total_return = hurdle_rate_payment + investor_premium
+        
+        # Determine if capitalizing or withdrawing
+        if decisions:
+            capitalize = decisions.get(year, "Capitalize") == "Capitalize"
+        else:
+            if strategy_option == "Always Capitalize":
+                capitalize = True
+            elif strategy_option == "Always Withdraw":
+                capitalize = False
+            else:
+                capitalize = True  # Default
+        
+        if capitalize:
+            # Capital post capitalization
+            capital_post_capitalization = current_capital + total_return
+            withdrawn_this_year = 0
+        else:
+            # Withdraw the payment
+            capital_post_capitalization = current_capital
+            withdrawn_this_year = total_return
+            total_withdrawn += withdrawn_this_year
+        
+        # Store results
+        results.append({
+            'Year': year,
+            'Initial_Capital': current_capital,
+            'Profit_from_Trading': profit_from_trading,
+            'Premium_Threshold': premium_threshold_amount,
+            'Surplus_Above_Threshold': surplus_above_threshold,
+            'Investor_Premium': investor_premium,
+            'Hurdle_Rate_Payment': hurdle_rate_payment,
+            'Total_Return': total_return,
+            'Decision': "Capitalize" if capitalize else "Withdraw",
+            'Withdrawn_This_Year': withdrawn_this_year,
+            'Capital_Post_Capitalization': capital_post_capitalization,
+            'Strategy_APR': strategy_apr
+        })
+        
+        # Update capital for next year
+        current_capital = capital_post_capitalization
+        total_hurdle_payments += hurdle_rate_payment
+        total_premium_payments += investor_premium
+    
+    return results, total_hurdle_payments, total_premium_payments, total_withdrawn
 
-def make_quarterly_decision(strategy, quarter, annual_return, threshold, payment, capital_base):
-    """Make quarterly investment decision based on strategy"""
-    if strategy == "Always Capitalize":
-        return "capitalize"
-    elif strategy == "Always Withdraw":
-        return "withdraw"
-    elif strategy == "Optimize Returns":
-        # Capitalize if returns are above threshold, withdraw if below
-        return "capitalize" if annual_return > threshold else "withdraw"
-    elif strategy == "Mixed Strategy":
-        # Capitalize first 2 years, then withdraw
-        return "capitalize" if quarter < 8 else "withdraw"
-    else:
-        return "withdraw"
-
-# Main calculation
-params = {
-    'initial_investment': initial_investment,
-    'term_months': term_months,
-    'annual_return': annual_return,
-    'volatility': volatility,
-    'hurdle_rate_quarterly': hurdle_rate_quarterly,
-    'premium_threshold': premium_threshold,
-    'premium_share': premium_share,
-    'strategy': default_strategy,
-    'seed': seed
+# Calculate scenarios
+scenarios = {
+    'Pessimistic': pessimistic_apr,
+    'Balanced': balanced_apr, 
+    'Optimistic': optimistic_apr
 }
 
-# Calculate base scenario
-df_results, total_cash, total_capitalized, final_capital = calculate_scenario(params)
+all_results = {}
+summary_data = {}
 
-# Create tabs for different views
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Overview", "📊 Quarterly Analysis", "💰 Cash Flow", "🎯 Scenario Comparison", "🎲 Monte Carlo"])
+for scenario_name, apr in scenarios.items():
+    results, total_hurdle, total_premium, total_withdrawn = calculate_annual_scenario(
+        initial_investment, 
+        apr, 
+        annual_hurdle_rate, 
+        premium_threshold, 
+        premium_share, 
+        term_years,
+        custom_decisions if strategy_option == "Custom by Year" else None
+    )
+    
+    all_results[scenario_name] = results
+    
+    final_capital = results[-1]['Capital_Post_Capitalization']
+    total_return_eur = (final_capital + total_withdrawn) - initial_investment
+    total_return_pct = ((final_capital + total_withdrawn) / initial_investment - 1) * 100
+    annual_avg_return = ((final_capital + total_withdrawn) / initial_investment) ** (1/term_years) - 1
+    
+    summary_data[scenario_name] = {
+        'Strategy_Performance_APR': f"{apr}%",
+        'Final_Capital': final_capital,
+        'Total_Withdrawn': total_withdrawn,
+        'Total_Value': final_capital + total_withdrawn,
+        'Total_Return_EUR': total_return_eur,
+        'Total_Return_PCT': total_return_pct,
+        'Annual_Average_Return': annual_avg_return * 100,
+        'Hurdle_Rate_Component': total_hurdle,
+        'Premium_Component': total_premium,
+        'Premium_Share_in_Total': (total_premium / total_return_eur * 100) if total_return_eur > 0 else 0
+    }
+
+# Create tabs
+tab1, tab2, tab3, tab4 = st.tabs(["📈 Scenario Overview", "📊 Year-by-Year Analysis", "💰 Summary Comparison", "🎯 Custom Strategy"])
 
 with tab1:
-    # Key metrics
-    col1, col2, col3, col4 = st.columns(4)
+    # Key metrics for all scenarios
+    st.subheader("Key Metrics Comparison")
     
-    with col1:
-        st.metric(
-            "Total Cash Received", 
-            f"€{total_cash:,.0f}",
-            f"{(total_cash / initial_investment - 1) * 100:.1f}% of initial"
-        )
+    col1, col2, col3 = st.columns(3)
     
-    with col2:
-        st.metric(
-            "Total Capitalized", 
-            f"€{total_capitalized:,.0f}",
-            f"{(total_capitalized / initial_investment) * 100:.1f}% of initial"
-        )
+    scenarios_list = ['Pessimistic', 'Balanced', 'Optimistic']
     
-    with col3:
-        st.metric(
-            "Final Capital Base", 
-            f"€{final_capital:,.0f}",
-            f"{(final_capital / initial_investment - 1) * 100:.1f}% growth"
-        )
+    for i, scenario in enumerate(scenarios_list):
+        data = summary_data[scenario]
+        with [col1, col2, col3][i]:
+            st.markdown(f"### {scenario}")
+            st.metric(
+                "Total Value", 
+                f"€{data['Total_Value']:,.0f}",
+                f"+{data['Total_Return_PCT']:.1f}%"
+            )
+            st.metric(
+                "Annual Avg Return", 
+                f"{data['Annual_Average_Return']:.1f}%"
+            )
+            st.metric(
+                "Final Capital", 
+                f"€{data['Final_Capital']:,.0f}"
+            )
+            if data['Total_Withdrawn'] > 0:
+                st.metric(
+                    "Total Withdrawn", 
+                    f"€{data['Total_Withdrawn']:,.0f}"
+                )
     
-    with col4:
-        total_value = total_cash + final_capital
-        st.metric(
-            "Total Value Created", 
-            f"€{total_value:,.0f}",
-            f"{(total_value / initial_investment - 1) * 100:.1f}% return"
-        )
+    # Capital growth chart
+    st.subheader("Capital Growth Over Time")
     
-    # Summary chart
-    fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=("Capital Base Growth", "Quarterly Payments", "Annual Returns", "Cumulative Cash Flow"),
-        specs=[[{"secondary_y": False}, {"secondary_y": False}],
-               [{"secondary_y": False}, {"secondary_y": False}]]
+    fig = go.Figure()
+    
+    colors = ['red', 'blue', 'green']
+    for i, (scenario_name, results) in enumerate(all_results.items()):
+        years = [0] + [r['Year'] for r in results]
+        capitals = [initial_investment] + [r['Capital_Post_Capitalization'] for r in results]
+        
+        fig.add_trace(go.Scatter(
+            x=years,
+            y=capitals,
+            mode='lines+markers',
+            name=f"{scenario_name} ({scenarios[scenario_name]}% APR)",
+            line=dict(color=colors[i], width=3),
+            marker=dict(size=8)
+        ))
+    
+    fig.update_layout(
+        title="Capital Growth Comparison",
+        xaxis_title="Year",
+        yaxis_title="Capital (€)",
+        height=500,
+        hovermode='x unified'
     )
     
-    # Capital base growth
-    fig.add_trace(
-        go.Scatter(x=df_results['Quarter'], y=df_results['Current_Capital_Base'], 
-                  name='Capital Base', line=dict(color='blue')),
-        row=1, col=1
-    )
-    
-    # Quarterly payments
-    fig.add_trace(
-        go.Bar(x=df_results['Quarter'], y=df_results['Total_Payment'], 
-               name='Quarterly Payment', marker_color='green'),
-        row=1, col=2
-    )
-    
-    # Annual returns
-    fig.add_trace(
-        go.Scatter(x=df_results['Quarter'], y=df_results['Annual_Equivalent'], 
-                  name='Annual Return %', line=dict(color='red')),
-        row=2, col=1
-    )
-    
-    # Cumulative cash flow
-    fig.add_trace(
-        go.Scatter(x=df_results['Quarter'], y=df_results['Cumulative_Cash'], 
-                  name='Cumulative Cash', line=dict(color='purple')),
-        row=2, col=2
-    )
-    
-    fig.update_layout(height=600, showlegend=False, title_text="Investment Overview Dashboard")
+    fig.update_yaxis(tickformat='€,.0f')
     st.plotly_chart(fig, use_container_width=True)
 
 with tab2:
-    st.subheader("Quarterly Decision Analysis")
+    st.subheader("Year-by-Year Detailed Analysis")
     
-    # Interactive quarterly decisions
-    st.markdown("### Override Quarterly Decisions")
-    decision_override = {}
+    selected_scenario = st.selectbox("Select Scenario for Detailed View:", scenarios_list)
     
-    col1, col2 = st.columns([2, 1])
+    results_data = all_results[selected_scenario]
+    df_detailed = pd.DataFrame(results_data)
     
-    with col2:
-        st.markdown("**Quick Actions:**")
-        if st.button("Capitalize All"):
-            for i in range(len(df_results)):
-                decision_override[i] = "capitalize"
-        if st.button("Withdraw All"):
-            for i in range(len(df_results)):
-                decision_override[i] = "withdraw"
-        if st.button("Reset to Strategy"):
-            decision_override = {}
+    # Format the dataframe for display
+    df_display = df_detailed.copy()
+    currency_columns = ['Initial_Capital', 'Profit_from_Trading', 'Premium_Threshold', 
+                       'Surplus_Above_Threshold', 'Investor_Premium', 'Hurdle_Rate_Payment', 
+                       'Total_Return', 'Withdrawn_This_Year', 'Capital_Post_Capitalization']
     
-    with col1:
-        # Display quarterly details with decision options
-        for idx, row in df_results.iterrows():
-            with st.expander(f"Quarter {row['Quarter']} - {row['Decision'].title()} (€{row['Total_Payment']:.0f})"):
-                col_a, col_b, col_c = st.columns([1, 1, 1])
-                
-                with col_a:
-                    st.write(f"**Return:** {row['Annual_Equivalent']:.1f}%")
-                    st.write(f"**Capital Base:** €{row['Current_Capital_Base']:.0f}")
-                
-                with col_b:
-                    st.write(f"**Hurdle:** €{row['Hurdle_Payment']:.0f}")
-                    st.write(f"**Premium:** €{row['Premium_Payment']:.0f}")
-                
-                with col_c:
-                    override_decision = st.selectbox(
-                        "Decision Override:",
-                        ["Use Strategy", "Capitalize", "Withdraw"],
-                        key=f"decision_{idx}"
-                    )
-                    if override_decision != "Use Strategy":
-                        decision_override[idx] = override_decision.lower()
+    for col in currency_columns:
+        df_display[col] = df_display[col].apply(lambda x: f"€{x:,.0f}")
     
-    # Recalculate if there are overrides
-    if decision_override:
-        st.info(f"Recalculating with {len(decision_override)} decision overrides...")
-        # This would require a more complex recalculation function
-
-with tab3:
-    st.subheader("Cash Flow Analysis")
+    # Rename columns for better display
+    df_display = df_display.rename(columns={
+        'Initial_Capital': 'Initial Capital',
+        'Profit_from_Trading': 'Profit from Trading',
+        'Premium_Threshold': 'Premium Threshold (30%)',
+        'Surplus_Above_Threshold': 'Surplus Above 30%',
+        'Investor_Premium': f'Investor Premium ({premium_share}%)',
+        'Hurdle_Rate_Payment': f'Hurdle Rate ({annual_hurdle_rate}%)',
+        'Total_Return': 'Total Return',
+        'Withdrawn_This_Year': 'Withdrawn This Year',
+        'Capital_Post_Capitalization': 'Capital Post Capitalization'
+    })
     
-    # Cash flow waterfall chart
-    fig_waterfall = go.Figure(go.Waterfall(
-        name="Cash Flow",
-        orientation="v",
-        measure=["absolute", "relative", "relative", "total"],
-        x=["Initial Investment", "Cash Received", "Capitalized Amount", "Final Position"],
-        textposition="outside",
-        text=[f"€{initial_investment:,.0f}", f"€{total_cash:,.0f}", 
-              f"€{total_capitalized:,.0f}", f"€{final_capital:,.0f}"],
-        y=[initial_investment, total_cash, total_capitalized, final_capital],
-        connector={"line": {"color": "rgb(63, 63, 63)"}},
+    st.dataframe(df_display, use_container_width=True, hide_index=True)
+    
+    # Annual returns breakdown chart
+    st.subheader(f"Annual Returns Breakdown - {selected_scenario}")
+    
+    years = df_detailed['Year'].tolist()
+    hurdle_payments = df_detailed['Hurdle_Rate_Payment'].tolist()
+    premium_payments = df_detailed['Investor_Premium'].tolist()
+    
+    fig_breakdown = go.Figure()
+    
+    fig_breakdown.add_trace(go.Bar(
+        name=f'Hurdle Rate ({annual_hurdle_rate}%)',
+        x=years,
+        y=hurdle_payments,
+        marker_color='lightblue'
     ))
     
-    fig_waterfall.update_layout(
-        title="Investment Cash Flow Waterfall",
-        showlegend=False,
-        height=500
+    fig_breakdown.add_trace(go.Bar(
+        name=f'Premium ({premium_share}%)',
+        x=years,
+        y=premium_payments,
+        marker_color='darkblue'
+    ))
+    
+    fig_breakdown.update_layout(
+        title='Annual Returns Breakdown',
+        xaxis_title='Year',
+        yaxis_title='Return (€)',
+        barmode='stack',
+        height=400
     )
-    st.plotly_chart(fig_waterfall, use_container_width=True)
     
-    # Detailed cash flow table
-    st.subheader("Detailed Quarterly Cash Flow")
+    fig_breakdown.update_yaxis(tickformat='€,.0f')
+    st.plotly_chart(fig_breakdown, use_container_width=True)
+
+with tab3:
+    st.subheader("Summary Comparison Table")
     
-    # Add some calculated columns for better analysis
-    df_display = df_results.copy()
-    df_display['ROI_Quarterly'] = (df_display['Total_Payment'] / df_display['Current_Capital_Base'] * 100).round(2)
-    df_display['Cumulative_ROI'] = ((df_display['Cumulative_Cash'] + df_display['Total_Capitalized']) / initial_investment * 100).round(1)
+    # Create summary dataframe
+    summary_df = pd.DataFrame(summary_data).T
     
-    st.dataframe(
-        df_display[['Quarter', 'Annual_Equivalent', 'Current_Capital_Base', 
-                   'Total_Payment', 'Decision', 'Cash_Received', 'Cumulative_Cash', 'ROI_Quarterly', 'Cumulative_ROI']],
-        use_container_width=True
+    # Format for display
+    summary_display = summary_df.copy()
+    summary_display['Final_Capital'] = summary_display['Final_Capital'].apply(lambda x: f"€{x:,.0f}")
+    summary_display['Total_Withdrawn'] = summary_display['Total_Withdrawn'].apply(lambda x: f"€{x:,.0f}")
+    summary_display['Total_Value'] = summary_display['Total_Value'].apply(lambda x: f"€{x:,.0f}")
+    summary_display['Total_Return_EUR'] = summary_display['Total_Return_EUR'].apply(lambda x: f"€{x:,.0f}")
+    summary_display['Total_Return_PCT'] = summary_display['Total_Return_PCT'].apply(lambda x: f"+{x:.1f}%")
+    summary_display['Annual_Average_Return'] = summary_display['Annual_Average_Return'].apply(lambda x: f"{x:.1f}%")
+    summary_display['Hurdle_Rate_Component'] = summary_display['Hurdle_Rate_Component'].apply(lambda x: f"€{x:,.0f}")
+    summary_display['Premium_Component'] = summary_display['Premium_Component'].apply(lambda x: f"€{x:,.0f}")
+    summary_display['Premium_Share_in_Total'] = summary_display['Premium_Share_in_Total'].apply(lambda x: f"{x:.0f}%")
+    
+    # Rename columns
+    summary_display = summary_display.rename(columns={
+        'Strategy_Performance_APR': 'Strategy Performance',
+        'Final_Capital': 'Capital at the End',
+        'Total_Withdrawn': 'Total Withdrawn',
+        'Total_Value': 'Total Value',
+        'Total_Return_EUR': 'Total Return €',
+        'Total_Return_PCT': 'Total Return %',
+        'Annual_Average_Return': 'Annual Average Return',
+        'Hurdle_Rate_Component': 'From Hurdle Rate',
+        'Premium_Component': 'From Premium',
+        'Premium_Share_in_Total': 'Premium Share in Total Return'
+    })
+    
+    st.dataframe(summary_display, use_container_width=True)
+    
+    # Return components visualization
+    st.subheader("Return Components Analysis")
+    
+    scenarios_names = list(summary_data.keys())
+    hurdle_components = [summary_data[s]['Hurdle_Rate_Component'] for s in scenarios_names]
+    premium_components = [summary_data[s]['Premium_Component'] for s in scenarios_names]
+    
+    fig_components = go.Figure()
+    
+    fig_components.add_trace(go.Bar(
+        name='Hurdle Rate Component',
+        x=scenarios_names,
+        y=hurdle_components,
+        marker_color='lightcoral'
+    ))
+    
+    fig_components.add_trace(go.Bar(
+        name='Premium Component',
+        x=scenarios_names,
+        y=premium_components,
+        marker_color='darkred'
+    ))
+    
+    fig_components.update_layout(
+        title='Total Return Components by Scenario',
+        xaxis_title='Scenario',
+        yaxis_title='Return Component (€)',
+        barmode='stack',
+        height=400
     )
+    
+    fig_components.update_yaxis(tickformat='€,.0f')
+    st.plotly_chart(fig_components, use_container_width=True)
 
 with tab4:
-    st.subheader("Scenario Comparison")
+    st.subheader("Custom Strategy Builder")
     
-    # Generate multiple scenarios
-    scenarios = {
-        "Conservative (20% return)": {**params, 'annual_return': 20, 'strategy': 'Always Withdraw'},
-        "Base Case (30% return)": {**params, 'annual_return': 30, 'strategy': 'Mixed Strategy'},
-        "Optimistic (40% return)": {**params, 'annual_return': 40, 'strategy': 'Always Capitalize'},
-        "High Volatility": {**params, 'volatility': 15, 'strategy': 'Optimize Returns'}
-    }
+    st.markdown("""
+    **Build your own capitalization strategy** by choosing year-by-year decisions.
+    Use the sidebar to set "Custom by Year" strategy and configure each year's decision.
+    """)
     
-    scenario_results = {}
-    for name, scenario_params in scenarios.items():
-        df_scenario, cash, capitalized, final_cap = calculate_scenario(scenario_params)
-        scenario_results[name] = {
-            'total_cash': cash,
-            'total_capitalized': capitalized,
-            'final_capital': final_cap,
-            'total_value': cash + final_cap,
-            'roi': (cash + final_cap) / initial_investment - 1
-        }
-    
-    # Scenario comparison table
-    comparison_df = pd.DataFrame(scenario_results).T
-    comparison_df['Total Return %'] = (comparison_df['roi'] * 100).round(1)
-    
-    st.dataframe(
-        comparison_df[['total_cash', 'total_capitalized', 'final_capital', 'total_value', 'Total Return %']],
-        use_container_width=True,
-        column_config={
-            'total_cash': st.column_config.NumberColumn('Cash Received', format='€%.0f'),
-            'total_capitalized': st.column_config.NumberColumn('Capitalized', format='€%.0f'),
-            'final_capital': st.column_config.NumberColumn('Final Capital', format='€%.0f'),
-            'total_value': st.column_config.NumberColumn('Total Value', format='€%.0f'),
-            'Total Return %': st.column_config.NumberColumn('Return %', format='%.1f%%')
-        }
-    )
-
-with tab5:
-    st.subheader("Monte Carlo Analysis")
-    
-    if st.button("Run Monte Carlo Simulation"):
-        with st.spinner("Running simulations..."):
-            monte_carlo_results = []
+    if strategy_option == "Custom by Year":
+        st.success("Custom strategy is active! Check the sidebar to modify year-by-year decisions.")
+        
+        # Show the custom strategy impact
+        st.markdown("### Custom Strategy Impact")
+        
+        custom_results = {}
+        for scenario_name, apr in scenarios.items():
+            results, total_hurdle, total_premium, total_withdrawn = calculate_annual_scenario(
+                initial_investment, 
+                apr, 
+                annual_hurdle_rate, 
+                premium_threshold, 
+                premium_share, 
+                term_years,
+                custom_decisions
+            )
             
-            for i in range(monte_carlo_runs):
-                sim_params = params.copy()
-                sim_params['seed'] = i + 1
-                _, cash, capitalized, final_cap = calculate_scenario(sim_params)
-                monte_carlo_results.append({
-                    'run': i + 1,
-                    'total_cash': cash,
-                    'final_capital': final_cap,
-                    'total_value': cash + final_cap,
-                    'roi': (cash + final_cap) / initial_investment - 1
-                })
+            final_capital = results[-1]['Capital_Post_Capitalization']
+            total_value = final_capital + total_withdrawn
             
-            mc_df = pd.DataFrame(monte_carlo_results)
-            
-            # Monte Carlo statistics
-            col1, col2, col3 = st.columns(3)
+            custom_results[scenario_name] = {
+                'Final_Capital': final_capital,
+                'Total_Withdrawn': total_withdrawn,
+                'Total_Value': total_value,
+                'Total_Return_PCT': ((total_value / initial_investment) - 1) * 100
+            }
+        
+        # Display custom strategy results
+        for scenario_name, result in custom_results.items():
+            st.markdown(f"**{scenario_name} Scenario ({scenarios[scenario_name]}% APR):**")
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("Average ROI", f"{mc_df['roi'].mean()*100:.1f}%")
-                st.metric("Median ROI", f"{mc_df['roi'].median()*100:.1f}%")
-            
+                st.metric("Final Capital", f"€{result['Final_Capital']:,.0f}")
             with col2:
-                st.metric("Best Case ROI", f"{mc_df['roi'].max()*100:.1f}%")
-                st.metric("Worst Case ROI", f"{mc_df['roi'].min()*100:.1f}%")
-            
+                st.metric("Total Withdrawn", f"€{result['Total_Withdrawn']:,.0f}")
             with col3:
-                st.metric("Standard Deviation", f"{mc_df['roi'].std()*100:.1f}%")
-                percentile_95 = np.percentile(mc_df['roi'], 5)
-                st.metric("5th Percentile", f"{percentile_95*100:.1f}%")
+                st.metric("Total Value", f"€{result['Total_Value']:,.0f}")
+            with col4:
+                st.metric("Total Return", f"+{result['Total_Return_PCT']:.1f}%")
+        
+        # Show decision timeline
+        st.markdown("### Your Decision Timeline")
+        decision_timeline = pd.DataFrame([
+            {"Year": year, "Decision": decision, "Action": "💰 Withdraw" if decision == "Withdraw" else "📈 Reinvest"}
+            for year, decision in custom_decisions.items()
+        ])
+        st.dataframe(decision_timeline, use_container_width=True, hide_index=True)
+        
+    else:
+        st.info("Select 'Custom by Year' in the sidebar to build your custom strategy.")
+        
+        # Show comparison of standard strategies
+        st.markdown("### Strategy Comparison")
+        
+        strategies_to_compare = ["Always Capitalize", "Always Withdraw"]
+        strategy_comparison = {}
+        
+        for strategy in strategies_to_compare:
+            temp_results = {}
+            for scenario_name, apr in scenarios.items():
+                if strategy == "Always Capitalize":
+                    decisions = {year: "Capitalize" for year in range(1, term_years + 1)}
+                else:
+                    decisions = {year: "Withdraw" for year in range(1, term_years + 1)}
+                
+                results, total_hurdle, total_premium, total_withdrawn = calculate_annual_scenario(
+                    initial_investment, apr, annual_hurdle_rate, premium_threshold, 
+                    premium_share, term_years, decisions
+                )
+                
+                final_capital = results[-1]['Capital_Post_Capitalization']
+                total_value = final_capital + total_withdrawn
+                temp_results[scenario_name] = total_value
             
-            # Monte Carlo distribution
-            fig_mc = px.histogram(
-                mc_df, x='roi', nbins=50,
-                title='Distribution of Returns (Monte Carlo)',
-                labels={'roi': 'Return on Investment', 'count': 'Frequency'}
-            )
-            fig_mc.update_xaxis(tickformat='.1%')
-            st.plotly_chart(fig_mc, use_container_width=True)
+            strategy_comparison[strategy] = temp_results
+        
+        # Display strategy comparison
+        comparison_df = pd.DataFrame(strategy_comparison)
+        comparison_df.index.name = "Scenario"
+        comparison_df = comparison_df.applymap(lambda x: f"€{x:,.0f}")
+        
+        st.dataframe(comparison_df, use_container_width=True)
 
 # Footer
 st.markdown("---")
+st.markdown(f"""
+**Model Parameters Summary:**
+- Initial Investment: €{initial_investment:,}
+- Term: {term_years} years
+- Hurdle Rate: {annual_hurdle_rate}% annually
+- Premium Threshold: {premium_threshold}%
+- Premium Share: {premium_share}%
+- Strategy: {strategy_option}
+""")
+
 st.markdown("""
 **Disclaimer**: This model is for illustrative purposes only. Actual investment returns may vary significantly. 
 Past performance does not guarantee future results. Please consult with financial advisors before making investment decisions.
