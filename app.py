@@ -81,18 +81,8 @@ premium_share = st.sidebar.slider(
 st.sidebar.subheader("Investment Strategy")
 strategy_option = st.sidebar.selectbox(
     "Capitalization Strategy",
-    ["Always Capitalize", "Always Withdraw", "Custom by Year"]
+    ["Always Capitalize", "Always Withdraw"]
 )
-
-custom_decisions = {}
-if strategy_option == "Custom by Year":
-    st.sidebar.write("**Year-by-year decisions:**")
-    for year in range(1, term_years + 1):
-        custom_decisions[year] = st.sidebar.selectbox(
-            f"Year {year}",
-            ["Capitalize", "Withdraw"],
-            key=f"year_{year}"
-        )
 
 def calculate_annual_scenario(initial_capital, strategy_apr, hurdle_rate_pct, premium_threshold_pct, premium_share_pct, term_years, decisions=None):
     """
@@ -124,15 +114,12 @@ def calculate_annual_scenario(initial_capital, strategy_apr, hurdle_rate_pct, pr
         total_return = hurdle_rate_payment + investor_premium
         
         # Determine if capitalizing or withdrawing
-        if decisions:
-            capitalize = decisions.get(year, "Capitalize") == "Capitalize"
+        if strategy_option == "Always Capitalize":
+            capitalize = True
+        elif strategy_option == "Always Withdraw":
+            capitalize = False
         else:
-            if strategy_option == "Always Capitalize":
-                capitalize = True
-            elif strategy_option == "Always Withdraw":
-                capitalize = False
-            else:
-                capitalize = True  # Default
+            capitalize = True  # Default
         
         if capitalize:
             # Capital post capitalization
@@ -184,8 +171,7 @@ for scenario_name, apr in scenarios.items():
         annual_hurdle_rate, 
         premium_threshold, 
         premium_share, 
-        term_years,
-        custom_decisions if strategy_option == "Custom by Year" else None
+        term_years
     )
     
     all_results[scenario_name] = results
@@ -209,7 +195,7 @@ for scenario_name, apr in scenarios.items():
     }
 
 # Create tabs
-tab1, tab2, tab3, tab4 = st.tabs(["📈 Scenario Overview", "📊 Year-by-Year Analysis", "💰 Summary Comparison", "🎯 Custom Strategy"])
+tab1, tab2, tab3 = st.tabs(["📈 Scenario Overview", "📊 Year-by-Year Analysis", "💰 Summary Comparison"])
 
 with tab1:
     # Key metrics for all scenarios
@@ -266,10 +252,9 @@ with tab1:
         xaxis_title="Year",
         yaxis_title="Capital (€)",
         height=500,
-        hovermode='x unified'
+        hovermode='x unified',
+        yaxis=dict(tickformat=',.0f')
     )
-    
-    fig.update_yaxis(tickformat=',.0f')
     st.plotly_chart(fig, use_container_width=True)
 
 with tab2:
@@ -332,10 +317,9 @@ with tab2:
         xaxis_title='Year',
         yaxis_title='Return (€)',
         barmode='stack',
-        height=400
+        height=400,
+        yaxis=dict(tickformat=',.0f')
     )
-    
-    fig_breakdown.update_yaxis(tickformat=',.0f')
     st.plotly_chart(fig_breakdown, use_container_width=True)
 
 with tab3:
@@ -400,104 +384,12 @@ with tab3:
         xaxis_title='Scenario',
         yaxis_title='Return Component (€)',
         barmode='stack',
-        height=400
+        height=400,
+        yaxis=dict(tickformat=',.0f')
     )
-    
-    fig_components.update_yaxis(tickformat=',.0f')
     st.plotly_chart(fig_components, use_container_width=True)
 
-with tab4:
-    st.subheader("Custom Strategy Builder")
-    
-    st.markdown("""
-    **Build your own capitalization strategy** by choosing year-by-year decisions.
-    Use the sidebar to set "Custom by Year" strategy and configure each year's decision.
-    """)
-    
-    if strategy_option == "Custom by Year":
-        st.success("Custom strategy is active! Check the sidebar to modify year-by-year decisions.")
-        
-        # Show the custom strategy impact
-        st.markdown("### Custom Strategy Impact")
-        
-        custom_results = {}
-        for scenario_name, apr in scenarios.items():
-            results, total_hurdle, total_premium, total_withdrawn = calculate_annual_scenario(
-                initial_investment, 
-                apr, 
-                annual_hurdle_rate, 
-                premium_threshold, 
-                premium_share, 
-                term_years,
-                custom_decisions
-            )
-            
-            final_capital = results[-1]['Capital_Post_Capitalization']
-            total_value = final_capital + total_withdrawn
-            
-            custom_results[scenario_name] = {
-                'Final_Capital': final_capital,
-                'Total_Withdrawn': total_withdrawn,
-                'Total_Value': total_value,
-                'Total_Return_PCT': ((total_value / initial_investment) - 1) * 100
-            }
-        
-        # Display custom strategy results
-        for scenario_name, result in custom_results.items():
-            st.markdown(f"**{scenario_name} Scenario ({scenarios[scenario_name]}% APR):**")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Final Capital", f"€{result['Final_Capital']:,.0f}")
-            with col2:
-                st.metric("Total Withdrawn", f"€{result['Total_Withdrawn']:,.0f}")
-            with col3:
-                st.metric("Total Value", f"€{result['Total_Value']:,.0f}")
-            with col4:
-                st.metric("Total Return", f"+{result['Total_Return_PCT']:.1f}%")
-        
-        # Show decision timeline
-        st.markdown("### Your Decision Timeline")
-        decision_timeline = pd.DataFrame([
-            {"Year": year, "Decision": decision, "Action": "💰 Withdraw" if decision == "Withdraw" else "📈 Reinvest"}
-            for year, decision in custom_decisions.items()
-        ])
-        st.dataframe(decision_timeline, use_container_width=True, hide_index=True)
-        
-    else:
-        st.info("Select 'Custom by Year' in the sidebar to build your custom strategy.")
-        
-        # Show comparison of standard strategies
-        st.markdown("### Strategy Comparison")
-        
-        strategies_to_compare = ["Always Capitalize", "Always Withdraw"]
-        strategy_comparison = {}
-        
-        for strategy in strategies_to_compare:
-            temp_results = {}
-            for scenario_name, apr in scenarios.items():
-                if strategy == "Always Capitalize":
-                    decisions = {year: "Capitalize" for year in range(1, term_years + 1)}
-                else:
-                    decisions = {year: "Withdraw" for year in range(1, term_years + 1)}
-                
-                results, total_hurdle, total_premium, total_withdrawn = calculate_annual_scenario(
-                    initial_investment, apr, annual_hurdle_rate, premium_threshold, 
-                    premium_share, term_years, decisions
-                )
-                
-                final_capital = results[-1]['Capital_Post_Capitalization']
-                total_value = final_capital + total_withdrawn
-                temp_results[scenario_name] = total_value
-            
-            strategy_comparison[strategy] = temp_results
-        
-        # Display strategy comparison
-        comparison_df = pd.DataFrame(strategy_comparison)
-        comparison_df.index.name = "Scenario"
-        comparison_df = comparison_df.applymap(lambda x: f"€{x:,.0f}")
-        
-        st.dataframe(comparison_df, use_container_width=True)
+
 
 # Footer
 st.markdown("---")
