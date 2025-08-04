@@ -61,21 +61,9 @@ annual_hurdle_rate = st.sidebar.slider(
     step=0.5
 )
 
-premium_threshold = st.sidebar.slider(
-    "Premium Threshold (%)", 
-    min_value=25.0, 
-    max_value=35.0, 
-    value=30.0, 
-    step=0.5
-)
-
-premium_share = st.sidebar.slider(
-    "Premium Share (%)", 
-    min_value=20.0, 
-    max_value=80.0, 
-    value=50.0, 
-    step=5.0
-)
+# Static values (no longer user-configurable)
+premium_threshold = 30.0  # Fixed at 30%
+premium_share = 50.0      # Fixed at 50%
 
 # Strategy settings
 st.sidebar.subheader("Investment Strategy")
@@ -274,13 +262,13 @@ with tab2:
     for col in currency_columns:
         df_display[col] = df_display[col].apply(lambda x: f"€{x:,.0f}")
     
-    # Rename columns for better display
+    # Rename columns for better display (now with static values)
     df_display = df_display.rename(columns={
         'Initial_Capital': 'Initial Capital',
         'Profit_from_Trading': 'Profit from Trading',
         'Premium_Threshold': 'Premium Threshold (30%)',
         'Surplus_Above_Threshold': 'Surplus Above 30%',
-        'Investor_Premium': f'Investor Premium ({premium_share}%)',
+        'Investor_Premium': 'Investor Premium (50%)',
         'Hurdle_Rate_Payment': f'Hurdle Rate ({annual_hurdle_rate}%)',
         'Total_Return': 'Total Return',
         'Withdrawn_This_Year': 'Withdrawn This Year',
@@ -306,7 +294,7 @@ with tab2:
     ))
     
     fig_breakdown.add_trace(go.Bar(
-        name=f'Premium ({premium_share}%)',
+        name='Premium (50%)',
         x=years,
         y=premium_payments,
         marker_color='darkblue'
@@ -398,8 +386,8 @@ st.markdown(f"""
 - Initial Investment: €{initial_investment:,}
 - Term: {term_years} years
 - Hurdle Rate: {annual_hurdle_rate}% annually
-- Premium Threshold: {premium_threshold}%
-- Premium Share: {premium_share}%
+- Premium Threshold: 30% (fixed)
+- Premium Share: 50% (fixed)
 - Strategy: {strategy_option}
 """)
 
